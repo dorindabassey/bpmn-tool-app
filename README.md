@@ -6,6 +6,24 @@
   Safari enforces HTTPS; therefore, it doesn't allow localhost through HTTP.
 - For more information, visit our [developer documentation](https://developers.miro.com).
 
+### About the app
+
+This app is a custom Miro plugin that imports BPMN .bpmn files into a Miro board, visually replicating process diagrams. It parses the BPMN XML, maps elements like tasks, gateways, events, and annotations to Miro shapes, and draws connectors between them with directional logic (e.g., elbowed arrows, vertical or horizontal flow).
+
+The app also:
+- Handles diverging/converging gateways with smart spacing
+- Applies icons (e.g., 👤, 🖥️) to represent participants or systems
+- Supports exporting selected shapes back into valid BPMN XML
+
+It’s designed to provide visual clarity and preserve BPMN semantics inside Miro for collaborative process modeling.
+
+<!-- describe shortly the purpose of the sample app -->
+
+Built using [`create-miro-app`](https://www.npmjs.com/package/create-miro-app).
+
+This app uses [Vite](https://vitejs.dev/). \
+If you want to modify the `vite.config.js` configuration, see the [Vite documentation](https://vitejs.dev/guide/).
+
 ### How to start locally
 
 - Run `npm i` to install dependencies.
@@ -39,14 +57,3 @@
 ├── app.html       // The app itself. It's loaded on the board inside the 'appContainer'
 └── index.html     // The app entry point. This is what you specify in the 'App URL' box in the Miro app settings
 ```
-
-### About the app
-
-This sample app provides you with boilerplate setup and configuration that you can further customize to build your own app.
-
-<!-- describe shortly the purpose of the sample app -->
-
-Built using [`create-miro-app`](https://www.npmjs.com/package/create-miro-app).
-
-This app uses [Vite](https://vitejs.dev/). \
-If you want to modify the `vite.config.js` configuration, see the [Vite documentation](https://vitejs.dev/guide/).
