@@ -1,5 +1,5 @@
-import * as React from 'react'; 
-import { createRoot } from 'react-dom/client'; 
+import * as React from 'react';
+import { createRoot } from 'react-dom/client';
 import BpmnModeler from 'bpmn-js/lib/Modeler';
 import congratsImage from './assets/congratulations.png';
 import '../src/assets/style.css';
@@ -12,7 +12,7 @@ const App = () => {
     const handleFileChange = (event) => {
         const file = event.target.files[0];
         if (!file) return;
-    
+
         const reader = new FileReader();
         reader.onload = (e) => setBpmnXml(e.target.result);
         reader.readAsText(file);
@@ -20,53 +20,55 @@ const App = () => {
 
       const exportHandler = async () => {
         const selection = await miro.board.getSelection();
-      
+
         const shapes = selection.filter(el => el.type === 'shape');
         const connectors = selection.filter(el => el.type === 'connector');
-      
+
         if (shapes.length === 0) {
-          alert('Please select at least one BPMN shape to export.');
+          miro.board.showModal({
+            title: 'Export Error',
+            body: 'Please select at least one BPMN shape to export.',
+            buttons: [{ content: 'OK' }]
+          });
           return;
         }
-      
+
         const idMap = new Map();
         const shapeDefs = [];
         const shapeVisuals = [];
         const flowDefs = [];
         const edgeVisuals = [];
-      
+
         shapes.forEach((shape, index) => {
           const bpmnId = `Element_${index}`;
           idMap.set(shape.id, bpmnId);
-      
-          // Map shape to BPMN type
+
           let tag = 'bpmn:task';
           if (shape.shape === 'circle') {
             tag = shape.content?.toLowerCase().includes('end') ? 'bpmn:endEvent' : 'bpmn:startEvent';
           } else if (shape.shape === 'rhombus') {
             tag = 'bpmn:exclusiveGateway';
           }
-      
-          shapeDefs.push(`<${tag} id="${bpmnId}" name="${shape.content}" />`);
-      
+
+          shapeDefs.push(`<${tag} id="${bpmnId}" name="${shape.content || ''}" />`);
+
           shapeVisuals.push(`
             <bpmndi:BPMNShape bpmnElement="${bpmnId}">
               <dc:Bounds x="${shape.x}" y="${shape.y}" width="${shape.width}" height="${shape.height}" />
             </bpmndi:BPMNShape>
           `);
         });
-      
+
         connectors.forEach((conn, index) => {
           const sourceId = idMap.get(conn.start.item);
           const targetId = idMap.get(conn.end.item);
           if (!sourceId || !targetId) return;
-      
+
           const flowId = `Flow_${index}`;
           const label = conn.captions?.[0]?.content || '';
-      
+
           flowDefs.push(`<bpmn:sequenceFlow id="${flowId}" name="${label}" sourceRef="${sourceId}" targetRef="${targetId}" />`);
-      
-          // Estimate waypoints from shapes
+
           const start = shapes.find(s => s.id === conn.start.item);
           const end = shapes.find(s => s.id === conn.end.item);
           if (start && end) {
@@ -80,7 +82,7 @@ const App = () => {
             `);
           }
         });
-      
+
         const xml = `<?xml version="1.0" encoding="UTF-8"?>
       <bpmn:definitions xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
                         xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
@@ -100,7 +102,7 @@ const App = () => {
           </bpmndi:BPMNPlane>
         </bpmndi:BPMNDiagram>
       </bpmn:definitions>`;
-      
+
         const blob = new Blob([xml], { type: 'application/xml' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -113,384 +115,530 @@ const App = () => {
 
       const clickHandler = async () => {
         if (!bpmnXml) {
-          alert("Please upload a BPMN file.");
+          miro.board.showModal({
+            title: 'Import Error',
+            body: 'Please upload a BPMN file.',
+            buttons: [{ content: 'OK' }]
+          });
           return;
         }
-      
+
         modeler = new BpmnModeler({ container: containerRef.current });
         await modeler.importXML(bpmnXml);
-      
+
         const parser = new DOMParser();
         const xmlDoc = parser.parseFromString(bpmnXml, 'text/xml');
-      
-        const edgeElements = xmlDoc.querySelectorAll('bpmndi\\:BPMNEdge, BPMNEdge');
-        const directionMap = new Map();
-      
-        edgeElements.forEach(edge => {
-          const id = edge.getAttribute('bpmnElement');
-          const waypoints = edge.querySelectorAll('di\\:waypoint, waypoint');
-          if (waypoints.length >= 2) {
-            const x1 = parseFloat(waypoints[0].getAttribute('x'));
-            const y1 = parseFloat(waypoints[0].getAttribute('y'));
-            const x2 = parseFloat(waypoints[waypoints.length - 1].getAttribute('x'));
-            const y2 = parseFloat(waypoints[waypoints.length - 1].getAttribute('y'));
-            const direction = Math.abs(x2 - x1) > Math.abs(y2 - y1) ? 'right' : 'down';
-            directionMap.set(id, direction);
-          }
-        });
-      
+
         const registry = modeler.get('elementRegistry');
         const elements = registry.getAll();
-      
+
         const shapeMap = new Map();
         const documentationMap = new Map();
-        const gatewayDirections = new Map();
+        const textAnnotationMap = new Map();
         const associationLinks = [];
+
+        // Store BPMN DI information (including waypoints) - This data will be extracted but not used for polyline in Miro
+        const bpmnDiEdges = {};
+        const bpmnDiAssociations = {};
+
+        // Extract BPMN DI information (Still good to have this parsed for potential future SDK updates or debugging)
+        const bpmndiPlane = xmlDoc.querySelector('bpmndi\\:BPMNPlane, BPMNPlane');
+        if (bpmndiPlane) {
+            const diEdges = bpmndiPlane.querySelectorAll('bpmndi\\:BPMNEdge, BPMNEdge');
+            diEdges.forEach(edge => {
+                const bpmnElementId = edge.getAttribute('bpmnElement');
+                const waypoints = [];
+                edge.querySelectorAll('omgdi\\:waypoint, waypoint').forEach(wp => {
+                    waypoints.push({
+                        x: parseFloat(wp.getAttribute('x')),
+                        y: parseFloat(wp.getAttribute('y'))
+                    });
+                });
+                if (bpmnElementId) {
+                    bpmnDiEdges[bpmnElementId] = waypoints;
+                }
+            });
+        }
+
+        // Separate elements by type for drawing order
+        const participants = [];
+        const lanes = [];
+        const flowNodes = []; // Tasks, Events, Gateways
+        const rawTextAnnotations = []; // Collect raw annotations for overall diagram bounds calculation
+        const dataObjectReferences = [];
+        const dataStoreReferences = []; 
+
+        // Calculate minX, minY, maxX, maxY of the entire diagram content
+        let minX = Infinity;
+        let minY = Infinity;
+        let maxX = -Infinity;
+        let maxY = -Infinity;
+
+        elements.forEach(el => {
+          if (el.businessObject?.documentation?.[0]?.text) {
+            documentationMap.set(el.id, el.businessObject.documentation[0].text);
+          }
+          if (el.type === 'bpmn:Association') {
+            const sourceId = el.businessObject?.sourceRef?.id;
+            const targetId = el.businessObject?.targetRef?.id;
+            if (sourceId && targetId) {
+              associationLinks.push({ bpmnId: el.id, sourceId, targetId });
+            }
+          }
+
+          // Classify elements for drawing order
+          if (el.type === 'bpmn:Participant') {
+            participants.push(el);
+          } else if (el.type === 'bpmn:Lane') {
+            lanes.push(el);
+          }
+          else if (el.type.includes('Task') || el.type.includes('Event') || el.type.includes('Gateway')) {
+            flowNodes.push(el);
+          } else if (el.type === 'bpmn:TextAnnotation') {
+            rawTextAnnotations.push(el);
+          } else if (el.type === 'bpmn:DataObjectReference' || el.type === 'bpmn:DataStoreReference') {
+            rawTextAnnotations.push(el); // Treat them as raw text annotations for processing
+          }
+
+
+          // Update overall diagram bounds if element has valid coordinates
+          if (el.x !== undefined && el.y !== undefined && el.width !== undefined && el.height !== undefined) {
+              minX = Math.min(minX, el.x);
+              minY = Math.min(minY, el.y);
+              maxX = Math.max(maxX, el.x + el.width);
+              maxY = Math.max(maxY, el.y + el.height);
+          }
+        });
+
+        // Add padding to the calculated min/max values for better visual spacing
+        const padding = 50;
+        minX -= padding;
+        minY -= padding;
+        maxX += padding;
+        maxY += padding;
+
+
         const annotationElements = xmlDoc.querySelectorAll('bpmn\\:textAnnotation, textAnnotation');
         const textAnnotations = [];
         const seenAnnotationIds = new Set();
-        
-        // From XML parsing
+
         annotationElements.forEach(annotation => {
           const id = annotation.getAttribute('id');
           if (seenAnnotationIds.has(id)) return;
-        
+
           const textNode = annotation.querySelector('bpmn\\:text, text');
           const text = textNode?.textContent?.trim() || '';
-        
+
           const typeNode = Array.from(annotation.getElementsByTagName('*'))
             .find(el => el.localName === 'signavioType' && el.getAttribute('dataObjectType'));
-        
+
           const dataObjectType = typeNode?.getAttribute('dataObjectType') || null;
-        
+
           textAnnotations.push({
             id,
             text,
             type: dataObjectType,
-            x: null,  // placeholder
-            y: null
+            x: null,
+            y: null,
+            width: null,
+            height: null
           });
-        
           seenAnnotationIds.add(id);
         });
-        
-        // Second: Enrich with x/y from elementRegistry if available
-        elements.forEach(el => {
-          if (el.businessObject.documentation?.[0]?.text) {
-            documentationMap.set(el.id, el.businessObject.documentation[0].text);
-          }
-        
-          if (el.type === 'bpmn:TextAnnotation') {
-            const existing = textAnnotations.find(t => t.id === el.id);
-            if (existing) {
-              existing.x = el.x;
-              existing.y = el.y;
-            } else {
-              // fallback: annotation only found in elementRegistry
-              textAnnotations.push({
-                id: el.id,
-                text: el.businessObject.text,
-                x: el.x,
-                y: el.y
-              });
-              seenAnnotationIds.add(el.id);
-            }
-          }
-          if (el.type.includes('Gateway')) {
-            const dir = el.businessObject.gatewayDirection || 'Unspecified';
-            gatewayDirections.set(el.id, dir);
-          }
-        //   if (el.type === 'bpmn:Association') {
-        //     const sourceId = el.businessObject.sourceRef?.id;
-        //     const targetId = el.businessObject.targetRef?.id;
-        //     if (sourceId && targetId) {
-        //       associationLinks.push({ sourceId, targetId });
-        //     }
-        //   }
-          if (el.type === 'bpmn:Association') {
-            const sourceId = el.businessObject.sourceRef?.id;
-            const targetId = el.businessObject.targetRef?.id;
 
-            if (sourceId && targetId) {
-                const source = registry.get(sourceId);
-                const target = registry.get(targetId);
+        // Enrich textAnnotations with x/y/width/height from elementRegistry
+        rawTextAnnotations.forEach(el => {
+          const existing = textAnnotations.find(t => t.id === el.id);
+          if (existing) {
+            existing.x = el.x;
+            existing.y = el.y;
+            existing.width = el.width;
+            existing.height = el.height;
+          } else {
+            // Determine the type for DataObjectReference and DataStoreReference
+            let type = el.type === 'bpmn:DataObjectReference' ? 'Data Object' :
+                       el.type === 'bpmn:DataStoreReference' ? 'Data Store' :
+                       el.businessObject?.type; // Fallback for other text annotations
 
-                const sx = source?.x ?? 0;
-                const sy = source?.y ?? 0;
-                const tx = target?.x ?? 0;
-                const ty = target?.y ?? 0;
-
-                const direction = Math.abs(sx - tx) > Math.abs(sy - ty) ? 'horizontal' : 'vertical';
-
-                associationLinks.push({
-                sourceId,
-                targetId,
-                direction,
-                offsetY: ty - sy
-                });
-            }
-          }
-
-        });
-      
-        // Build flow graph
-        const flowGraph = new Map();
-        elements.forEach(el => {
-          if (el.type === 'bpmn:SequenceFlow') {
-            const source = el.businessObject.sourceRef?.id;
-            const target = el.businessObject.targetRef?.id;
-            if (!flowGraph.has(source)) flowGraph.set(source, []);
-            flowGraph.get(source).push(target);
+            textAnnotations.push({
+              id: el.id,
+              text: el.businessObject?.name || el.businessObject?.text, // Use name for data objects/stores, text for annotations
+              type: type,
+              x: el.x,
+              y: el.y,
+              width: el.width,
+              height: el.height
+            });
+            seenAnnotationIds.add(el.id);
           }
         });
-      
-        // Place nodes
-        const positionMap = new Map();
-        const placed = new Set();
-        const divergingGatewayCount = new Map(); // key = depth, value = counter
 
-        function placeNode(id, depth = 0, row = 0) {
-        if (!id || placed.has(id)) return;
-        const el = elements.find(e => e.id === id);
-        const gatewayDirection = el?.businessObject?.gatewayDirection;
-
-        // Handle diverging gateway vertical offset
-        if (gatewayDirection === 'Diverging') {
-            const count = divergingGatewayCount.get(depth) || 0;
-            const offset = count % 2 === 0 ? -Math.ceil(count / 2) : Math.ceil(count / 2);
-            row += offset;
-            divergingGatewayCount.set(depth, count + 1);
-        }
-
-        const x = depth * 500;
-        const y = row * 200;
-        positionMap.set(id, { x, y });
-        placed.add(id);
-
-        const targets = flowGraph.get(id) || [];
-
-        if (gatewayDirection === 'Diverging') {
-            const mid = Math.floor(targets.length / 2);
-            targets.forEach((targetId, index) => {
-            const verticalOffset = index - mid;
-            placeNode(targetId, depth + 1, row + verticalOffset);
-            });
-        } else if (gatewayDirection === 'Converging') {
-            const mid = Math.floor(targets.length / 2);
-            targets.forEach((targetId, index) => {
-            const verticalOffset = index - mid;
-            placeNode(targetId, depth + 1, row + verticalOffset);
-            });
-        } else {
-            targets.forEach(targetId => {
-            placeNode(targetId, depth + 1, row);
-            });
-        }
-        }
-
-        
-      
-        const startEvents = elements.filter(el => el.type === 'bpmn:StartEvent');
-        startEvents.forEach(start => placeNode(start.id));
-      
         const viewport = await miro.board.viewport.get();
-        const space = await miro.board.findEmptySpace({
+        // Find an empty space that can contain the entire diagram
+        const emptySpace = await miro.board.findEmptySpace({
           x: viewport.x,
           y: viewport.y,
-          width: 2000,
-          height: 2000
+          width: maxX - minX,
+          height: maxY - minY
         });
-        const offsetX = space.x;
-        const offsetY = space.y;
-      
-        // Create shapes
-        const textAnnotationMap = new Map();
-      
-        for (const [id, { x, y }] of positionMap.entries()) {
-          const el = elements.find(e => e.id === id);
-          if (!el || !(el.type.includes('Task') || el.type.includes('Event') || el.type.includes('Gateway'))) {
-            continue;
-          }
-      
-          let width = 200;
-          let height = 100;
-          let shapeType = 'round_rectangle';
-          if (el.type.includes('Gateway')) {
-            shapeType = 'rhombus';
-            const hasName = !!el.businessObject.name?.trim() && !el.businessObject.name.startsWith('sid-');
-            if (!hasName) {
-              width = 40;
-              height = 40;
-            }
-          }
-          if (el.type.includes('Event')) {
-            shapeType = 'circle';
-            width = 60;
-            height = 60;
-          }
-      
-          let labelText = el.businessObject.name?.trim();
-            const isGateway = el.type.includes('Gateway');
-            const isEvent = el.type.includes('Event');
-            const isTask = el.type.includes('Task');
 
-            if (isGateway) {
-            const hasName = labelText && !labelText.startsWith('sid-');
-            if (!hasName) labelText = ''; // remove raw sid text
-            }
-            if (!labelText && !isEvent && !isGateway) {
-            labelText = el.id; // fallback for unnamed tasks
-            }
+        // Calculate global offsets to shift the entire diagram.
+        const globalOffsetX = emptySpace.x - minX;
+        const globalOffsetY = emptySpace.y - minY;
 
-      
-          const shape = await miro.board.createShape({
-            content: el.type.includes('Event') ? '' : labelText,
-            shape: shapeType,
-            x: x + offsetX,
-            y: y + offsetY,
-            width,
-            height,
-            style: {
-              fillColor: '#ffffff',
-              borderWidth: 2
-            }
-          });
+        // Store participant IDs and their corresponding Miro shape IDs and dimensions
+        const participantMiroData = new Map();
 
-          if (isGateway && labelText === '') {
-            const dir = el.businessObject.gatewayDirection;
-            const symbol = 'O';
-          
-            if (symbol) {
-              await miro.board.createText({
-                content: symbol,
-                x: x + offsetX,
-                y: y + offsetY,
-                style: {
-                  fontSize: 24,
-                  textAlign: 'center'
+        // 1. Create Participants first (as background layers for pools)
+        for (const el of participants) {
+            if (el.x !== undefined && el.y !== undefined && el.width !== undefined && el.height !== undefined) {
+                let labelText = el.businessObject?.name?.trim() || '';
+
+                // Miro's coordinates are center-based. BPMN.js coordinates are top-left based.
+                // Adjusting for Miro's center-based positioning:
+                const miroX = el.x + el.width / 2 + globalOffsetX;
+                const miroY = el.y + el.height / 2 + globalOffsetY;
+
+                const shape = await miro.board.createShape({
+                    content: '',
+                    shape: 'rectangle',
+                    x: miroX,
+                    y: miroY,
+                    width: el.width,
+                    height: el.height,
+                    style: {
+                        fillColor: 'transparent',
+                        borderWidth: 2,
+                        borderColor: '#1a1a1a'
+                    }
+                });
+                shapeMap.set(el.id, shape.id);
+                participantMiroData.set(el.id, {
+                    miroId: shape.id,
+                    originalBpmnX: el.x,
+                    originalBpmnY: el.y,
+                    miroX: shape.x, // Center X in Miro
+                    miroY: shape.y, // Center Y in Miro
+                    miroWidth: shape.width,
+                    miroHeight: shape.height
+                });
+
+
+                if (labelText) {
+                    // Position label to the left, rotated 90 degrees for a pool header
+                    await miro.board.createText({
+                        content: labelText,
+                        // x: shape.x - (shape.width / 2) - 30, // Left of the shape's bounding box
+                        x: shape.x - shape.width / 2 + 10, // Adjusted for left alignment within the lane
+                        y: shape.y, // Vertically centered
+                        style: {
+                            fontSize: 14,
+                            textAlign: 'center',
+                            color: '#1a1a1a',
+                            fillColor: 'transparent'
+                        },
+                        rotation: -90
+                    });
                 }
-              });
             }
-          }
-
-          shapeMap.set(el.id, shape.id);
-      
-          if (el.type.includes('Event')) {
-            await miro.board.createText({
-              content: labelText,
-              x: x + offsetX,
-              y: y + offsetY + 80,
-              style: { fontSize: 14, textAlign: 'center' }
-            });
-          }
-      
-          if (documentationMap.has(el.id)) {
-            let commentShape;
-            try {
-              commentShape = await miro.board.createShape({
-                shape: 'flow_chart_predefined_process',
-                content: documentationMap.get(el.id),
-                width: 150,
-                height: 70,
-                x: x + offsetX + 250,
-                y: y + offsetY,
-                style: {
-                  fillColor: '#fef3bd',
-                  borderWidth: 1
-                }
-              });
-            } catch (err) {
-              console.warn('Failed to create comment shape for', el.id, err);
-            }
-
-            await miro.board.createConnector({
-              start: { item: shape.id, snapTo: 'auto' },
-              end: { item: commentShape.id, snapTo: 'auto' },
-              style: {
-                strokeColor: '#CCCCCC',
-                strokeWidth: 1,
-              }
-            });
-          }
         }
-      
-        // Create textAnnotations
-        for (const [i, ta] of textAnnotations.entries()) {
-          const iconMap = {
-            "IT-System": "🖥️",
-            "ProcessParticipant": "👤",
-            "Database": "🗄️"
-          };
-          console.log('tpye is:', ta.type);
-        
-          const icon = iconMap[ta.type] || '';
-          const label = `${icon} ${ta.text}`;
-        
-          // ✅ Use fallback if ta.x or ta.y is missing
-          const baseX = typeof ta.x === 'number' ? ta.x : 0;
-          const baseY = typeof ta.y === 'number' ? ta.y : i * 200;
 
-          let taShape;
-          if (icon) {
-            // Render just the icon as a text widget
-            const iconShape = await miro.board.createText({
-              content: icon,
-              width: 60,
-              height: 60,
-              x: ta.x + offsetX,
-              y: ta.y + offsetY,
+        // 2. Create Lanes (nested within participants visually)
+        for (const el of lanes) {
+            if (el.x !== undefined && el.y !== undefined && el.width !== undefined && el.height !== undefined) {
+                let labelText = el.businessObject?.name?.trim() || '';
+                
+                // Get the parent participant's original BPMN coordinates
+                let parentParticipantData = null;
+                // Find parent participant. In BPMN, a lane is contained within a participant.
+                // We need to traverse the XML or have a clearer parent-child relationship.
+                // For simplicity here, assuming lanes are direct children of the process,
+                // and their X/Y are relative to the overall diagram's starting point (0,0)
+                // in the BPMN.js model. If they are truly relative to participant bounds,
+                // this logic needs to find the correct parent participant's original BPMN coordinates.
+                // Based on the given XML, lanes are directly under the process, so their coordinates
+                // are absolute within the process's canvas.
+
+                // Adjusting for Miro's center-based positioning:
+                const miroX = el.x + el.width / 2 + globalOffsetX;
+                const miroY = el.y + el.height / 2 + globalOffsetY;
+
+                const shape = await miro.board.createShape({
+                    content: '',
+                    shape: 'rectangle',
+                    x: miroX,
+                    y: miroY,
+                    width: el.width,
+                    height: el.height,
+                    style: {
+                        fillColor: '#f0f0f0',
+                        borderWidth: 1,
+                        borderColor: '#1a1a1a'
+                    }
+                });
+                shapeMap.set(el.id, shape.id);
+
+                if (labelText) {
+                    // Position label within the lane, adjusting for Miro's center-based coordinates
+                    await miro.board.createText({
+                        content: labelText,
+                        x: shape.x - shape.width / 2 + 20, // A bit in from the left edge of the lane
+                        y: shape.y - shape.height / 2 + 10, // A bit down from the top edge of the lane
+                        style: {
+                            fontSize: 14,
+                            textAlign: 'left', // Align text left within its own bounding box
+                            color: '#1a1a1a',
+                            fillColor: 'transparent'
+                        }
+                    });
+                }
+            }
+        }
+
+        // 3. Create other BPMN shapes (Tasks, Events, Gateways) on top
+        for (const el of flowNodes) {
+          if (el.x !== undefined && el.y !== undefined && el.width !== undefined && el.height !== undefined) {
+
+            let width = el.width;
+            let height = el.height;
+            let shapeType = 'round_rectangle';
+            let fillColor = '#ffffff';
+            let fontSize = 12;
+            let strokeWidth = 2;
+
+            if (el.type.includes('Gateway')) {
+              shapeType = 'rhombus';
+            } else if (el.type.includes('Event')) {
+              shapeType = 'circle';
+              width = 60;
+              height = 60;
+            }
+
+            let labelText = el.businessObject?.name?.trim() || '';
+
+            const isGateway = el.type.includes('Gateway');
+            const hasMeaningfulLabel = labelText && !labelText.startsWith('sid-');
+            const contentForShape = isGateway ? '' : labelText; 
+            // if (isGateway && !hasMeaningfulLabel) {
+            //     labelText = '';
+            // }
+
+            // Adjusting for Miro's center-based positioning:
+            const miroX = el.x + el.width / 2 + globalOffsetX;
+            const miroY = el.y + el.height / 2 + globalOffsetY;
+
+            const shape = await miro.board.createShape({
+              content: contentForShape,
+              shape: shapeType,
+              x: miroX,
+              y: miroY,
+              width: width,
+              height: height,
               style: {
-                fontSize: 32,
+                fillColor: fillColor,
+                borderWidth: strokeWidth,
+                borderColor: '#1a1a1a',
+                fontSize: fontSize,
                 textAlign: 'center'
               }
             });
 
-            // Create a text label next to it
-            const labelText = await miro.board.createText({
-              content: ta.text,
-              x: ta.x + offsetX + 80, // offset to the right
-              y: ta.y + offsetY,
-              style: {
-                fontSize: 16,
-                textAlign: 'left',
-                color: '#000000'
-              }
-            });
+            shapeMap.set(el.id, shape.id);
 
-            let groupId = null;
-            let group;
+            if (isGateway) {
+                let symbol = '';
+                if (el.businessObject?.gatewayDirection === 'Diverging') {
+                    symbol = 'X';
+                } else if (el.businessObject?.gatewayDirection === 'Converging') {
+                    symbol = 'O';
+                }
 
-            try {
-              group = await miro.board.group({
-                childrenIds: [iconShape.id, labelText.id]
-              });
-              groupId = group?.id || iconShape.id;
-            } catch (error) {
-              console.warn(`Could not group icon and label for ${ta.id}:`, error);
-              // Just fall back to tracking the icon
-              groupId = iconShape.id;
+                if (symbol) {
+                    await miro.board.createText({
+                        content: symbol,
+                        x: shape.x,
+                        y: shape.y,
+                        style: {
+                            fontSize: 24,
+                            textAlign: 'center',
+                            color: '#1a1a1a'
+                        }
+                    });
+                }
+                if (hasMeaningfulLabel) {
+                    // Calculate the position for the text to be to the right of the gateway.
+                    // shape.x is the center of the gateway.
+                    // shape.width / 2 gets us to the right edge of the gateway.
+                    // Add a margin (e.g., 20 pixels) to separate the text.
+                    const textX = shape.x + (shape.width / 2) - 80; // Adjusted X position
+                    
+                    await miro.board.createText({
+                        content: labelText,
+                        x: textX, // Use the calculated X position
+                        y: shape.y, // Vertically center with the gateway
+                        style: {
+                            fontSize: fontSize,
+                            textAlign: 'left', // This aligns text within its bounding box to the left
+                            color: '#1a1a1a',
+                            fillColor: 'transparent'
+                        }
+                    });
+                }
             }
-            textAnnotationMap.set(ta.id, groupId);
 
-          } else {
-            // Default annotation
-            taShape = await miro.board.createShape({
-              shape: 'flow_chart_predefined_process',
-              content: ta.text,
-              width: 150,
-              height: 70,
-              x: ta.x + offsetX,
-              y: ta.y + offsetY,
-              style: {
-                fillColor: '#ffffff',
-                borderWidth: 1
+            if (documentationMap.has(el.id)) {
+              let commentShape;
+              try {
+                // Adjusting for Miro's center-based positioning for comments as well:
+                const commentX = el.x + el.width / 2 + 100 + 150/2 + globalOffsetX; // el.x is top-left, add half width of comment shape
+                const commentY = el.y + el.height / 2 + globalOffsetY;
+
+                commentShape = await miro.board.createShape({
+                  shape: 'flow_chart_predefined_process',
+                  content: documentationMap.get(el.id),
+                  width: 150,
+                  height: 70,
+                  x: commentX,
+                  y: commentY,
+                  style: {
+                    fillColor: '#fef3bd',
+                    borderWidth: 1,
+                    borderColor: '#cccccc'
+                  }
+                });
+                await miro.board.createConnector({
+                  start: { item: shape.id, snapTo: 'auto' },
+                  end: { item: commentShape.id, snapTo: 'auto' },
+                  style: {
+                    strokeColor: '#CCCCCC',
+                    strokeWidth: 1,
+                  }
+                });
+              } catch (err) {
+                console.warn('Failed to create comment shape for', el.id, err);
               }
-            });
-            textAnnotationMap.set(ta.id, taShape.id);
+            }
           }
         }
-      
-        // Draw sequenceFlows (solid)
+
+        // Create DataObjectReference shapes
+        for (const el of dataObjectReferences) {
+            if (el.x !== undefined && el.y !== undefined && el.width !== undefined && el.height !== undefined) {
+                 // Adjusting for Miro's center-based positioning:
+                const miroX = el.x + el.width / 2 + globalOffsetX;
+                const miroY = el.y + el.height / 2 + globalOffsetY;
+
+                const shape = await miro.board.createShape({
+                    content: el.businessObject?.name?.trim() || '',
+                    shape: 'flow_chart_data', // Data object shape
+                    x: miroX,
+                    y: miroY,
+                    width: el.width,
+                    height: el.height,
+                    style: {
+                        fillColor: '#ffffff',
+                        borderWidth: 1,
+                        borderColor: '#1a1a1a',
+                        fontSize: 12,
+                        textAlign: 'center'
+                    }
+                });
+                shapeMap.set(el.id, shape.id); // Add to shapeMap so associations can find it
+            }
+        }
+
+        // NEW: Create DataStoreReference shapes [Changed Block]: Added logic for DataStoreReference
+        for (const el of dataStoreReferences) {
+            if (el.x !== undefined && el.y !== undefined && el.width !== undefined && el.height !== undefined) {
+                 // Adjusting for Miro's center-based positioning:
+                const miroX = el.x + el.width / 2 + globalOffsetX;
+                const miroY = el.y + el.height / 2 + globalOffsetY;
+
+                const shape = await miro.board.createShape({
+                    content: el.businessObject?.name?.trim() || '',
+                    shape: 'flow_chart_database', // Use database shape (cylinder)
+                    x: miroX,
+                    y: miroY,
+                    width: el.width,
+                    height: el.height,
+                    style: {
+                        fillColor: '#ffffff',
+                        borderWidth: 1,
+                        borderColor: '#1a1a1a',
+                        fontSize: 12,
+                        textAlign: 'center'
+                    }
+                });
+                shapeMap.set(el.id, shape.id); // Add to shapeMap
+            }
+        }
+
+
+        // 4. Create Text Annotations and connect them
+        // [Changed Block]: Updated iconMap and logic for Data Objects/Stores
+        for (const ta of textAnnotations) {
+          const iconMap = {
+            "IT-System": "🖥️",
+            "ProcessParticipant": "👤",
+            "Database": "🗄️",
+            "Data Object": "📄", // [Changed Line]: Icon for Data Object
+            "Data Store": "🗄️"  // [Changed Line]: Icon for Data Store (reusing database icon)
+          };
+
+          const icon = iconMap[ta.type] || '';
+          // Determine if a shape or just text should be used for the annotation.
+          // Now, Data Objects and Data Stores will also be treated as annotations.
+          const useShapeForAnnotation = (ta.type === "IT-System" || ta.type === "Database" || ta.type === "Data Object" || ta.type === "Data Store" || (!icon && ta.width && ta.height)); // [Changed Line]
+
+          const baseX = typeof ta.x === 'number' ? ta.x : 0;
+          const baseY = typeof ta.y === 'number' ? ta.y : 0;
+          const annWidth = typeof ta.width === 'number' && ta.width > 0 ? ta.width : 150;
+          const annHeight = typeof ta.height === 'number' && ta.height > 0 ? ta.height : 70;
+
+          let annotationMiroItem = null;
+          try {
+            // Adjusting for Miro's center-based positioning for text annotations:
+            const miroX = baseX + annWidth / 2 + globalOffsetX;
+            const miroY = baseY + annHeight / 2 + globalOffsetY;
+
+            if (useShapeForAnnotation) {
+                annotationMiroItem = await miro.board.createShape({
+                  shape: 'round_rectangle', // Using round_rectangle for a background box
+                  content: icon ? `${icon} ${ta.text}` : ta.text,
+                  width: annWidth,
+                  height: annHeight,
+                  x: miroX,
+                  y: miroY,
+                  style: {
+                    fillColor: '#e1e1e1',
+                    borderWidth: 1,
+                    borderColor: '#cccccc',
+                    fontSize: 14,
+                    textAlign: 'center'
+                  }
+                });
+            } else {
+                annotationMiroItem = await miro.board.createText({
+                  content: icon ? `${icon} ${ta.text}` : ta.text,
+                  x: miroX, // For text, X/Y is still top-left, but adjust relative to overall diagram shift.
+                  y: miroY,
+                  style: {
+                    fontSize: 16,
+                    textAlign: 'left',
+                    color: '#000000',
+                    fillColor: 'transparent'
+                  }
+                });
+            }
+            if (annotationMiroItem && annotationMiroItem.id) {
+              textAnnotationMap.set(ta.id, annotationMiroItem.id);
+            }
+          } catch (error) {
+              console.error(`Failed to create text annotation ${ta.id}:`, error);
+          }
+        }
+
+        // 5. Create Sequence Flows (solid lines)
         for (const el of elements) {
           if (el.type === 'bpmn:SequenceFlow') {
             const source = el.businessObject.sourceRef?.id;
@@ -502,6 +650,7 @@ const App = () => {
               const startShape = await miro.board.get({ id: startId });
               const endShape = await miro.board.get({ id: endId });
               
+              // Miro board.get returns an array, take the first element
               const sx = startShape[0].x;
               const sy = startShape[0].y;
               const ex = endShape[0].x;
@@ -592,74 +741,34 @@ const App = () => {
             }
           }
         }
-      
+
         // Draw associations (light grey)
         for (const assoc of associationLinks) {
           const startId = shapeMap.get(assoc.sourceId);
-          const endId = textAnnotationMap.get(assoc.targetId);
-      
+          const endId = textAnnotationMap.get(assoc.targetId) || shapeMap.get(assoc.targetId);
+
           if (startId && endId) {
-            const startShape = await miro.board.get({ id: startId });
-            const endShape = await miro.board.get({ id: endId });
-            
-            let startSnap = 'auto';
-            let endSnap = 'auto';
-            
-            await miro.board.createConnector({
-              start: { item: startId, snapTo: startSnap },
-              end: { item: endId, snapTo: endSnap },
+            const connectorConfig = {
+              start: { item: startId, snapTo: 'auto' },
+              end: { item: endId, snapTo: 'auto' },
               style: {
                 strokeColor: '#1a1a1a',
-                strokeWidth: 1
+                strokeWidth: 1,
               }
-            });
+            };
+
+            await miro.board.createConnector(connectorConfig);
+          } else {
+            console.warn(`Could not create association. Missing startId (${startId ? assoc.sourceId : 'not found'}) or endId (${endId ? assoc.targetId : 'not found'}).`);
           }
         }
 
-        // let verticalOffset = 100; // distance below the shape
-
-        // for (const assoc of associationLinks) {
-        // const startId = shapeMap.get(assoc.sourceId);
-        // const endId = textAnnotationMap.get(assoc.targetId);
-
-        // if (startId && endId) {
-        //     const startShape = await miro.board.getById(startId);
-        //     const endShape = await miro.board.getById(endId);
-
-        //     const sx = startShape.x;
-        //     const sy = startShape.y;
-
-        //     // ✅ Reposition the annotation directly below the source shape
-        //     const targetX = sx;
-        //     const targetY = sy + verticalOffset;
-
-        //     const newAnnotation = await miro.board.createText({
-        //     content: endShape.content,
-        //     x: targetX,
-        //     y: targetY,
-        //     });
-
-        //     await miro.board.createConnector({
-        //     start: { item: startId, snapTo: 'bottom' },
-        //     end: { item: newAnnotation.id, snapTo: 'top' },
-        //     style: {
-        //         strokeColor: '#CCCCCC',
-        //         strokeWidth: 1,
-        //         //lineStyle: 'dotted'
-        //     },
-        //     //shape: 'elbowed'
-        //     });
-
-        //     // Optional: update the map if needed
-        //     textAnnotationMap.set(assoc.targetId, newAnnotation.id);
-        // }
-        // }
         alert('✅ BPMN imported with flows, associations, comments, and layout!');
-      };      
-      
-          
-    return ( <div className="grid wrapper"> 
-      <div className="cs1 ce12"> 
+      };
+
+
+    return ( <div className="grid wrapper">
+      <div className="cs1 ce12">
         <img src={congratsImage} alt="Congrats!" />
       </div>
       <input type="file" accept=".bpmn,.xml" onChange={handleFileChange} className="cs1 ce12" />
@@ -671,8 +780,8 @@ const App = () => {
 	  </button>
       <div ref={containerRef} style={{ display: 'none' }}></div>
     </div> );
-}; 
+};
 
-const container = document.getElementById('root'); 
-const root = createRoot(container); 
-root.render(<App />); 
+const container = document.getElementById('root');
+const root = createRoot(container);
+root.render(<App />);
