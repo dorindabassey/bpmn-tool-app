@@ -289,7 +289,7 @@ const App = () => {
         // Store participant IDs and their corresponding Miro shape IDs and dimensions
         const participantMiroData = new Map();
 
-        // 1. Create Participants first (as background layers for pools)
+        /// Create Participants first (as background layers for pools)
         for (const el of participants) {
             if (el.x !== undefined && el.y !== undefined && el.width !== undefined && el.height !== undefined) {
                 let labelText = el.businessObject?.name?.trim() || '';
@@ -343,21 +343,10 @@ const App = () => {
             }
         }
 
-        // 2. Create Lanes (nested within participants visually)
+        /// Create Lanes (nested within participants visually)
         for (const el of lanes) {
             if (el.x !== undefined && el.y !== undefined && el.width !== undefined && el.height !== undefined) {
                 let labelText = el.businessObject?.name?.trim() || '';
-                
-                // Get the parent participant's original BPMN coordinates
-                let parentParticipantData = null;
-                // Find parent participant. In BPMN, a lane is contained within a participant.
-                // We need to traverse the XML or have a clearer parent-child relationship.
-                // For simplicity here, assuming lanes are direct children of the process,
-                // and their X/Y are relative to the overall diagram's starting point (0,0)
-                // in the BPMN.js model. If they are truly relative to participant bounds,
-                // this logic needs to find the correct parent participant's original BPMN coordinates.
-                // Based on the given XML, lanes are directly under the process, so their coordinates
-                // are absolute within the process's canvas.
 
                 // Adjusting for Miro's center-based positioning:
                 const miroX = el.x + el.width / 2 + globalOffsetX;
@@ -395,7 +384,7 @@ const App = () => {
             }
         }
 
-        // 3. Create other BPMN shapes (Tasks, Events, Gateways) on top
+        /// Create other BPMN shapes (Tasks, Events, Gateways) on top
         for (const el of flowNodes) {
           if (el.x !== undefined && el.y !== undefined && el.width !== undefined && el.height !== undefined) {
 
@@ -419,9 +408,6 @@ const App = () => {
             const isGateway = el.type.includes('Gateway');
             const hasMeaningfulLabel = labelText && !labelText.startsWith('sid-');
             const contentForShape = isGateway ? '' : labelText; 
-            // if (isGateway && !hasMeaningfulLabel) {
-            //     labelText = '';
-            // }
 
             // Adjusting for Miro's center-based positioning:
             const miroX = el.x + el.width / 2 + globalOffsetX;
@@ -547,7 +533,7 @@ const App = () => {
             }
         }
 
-        // NEW: Create DataStoreReference shapes [Changed Block]: Added logic for DataStoreReference
+        // Create DataStoreReference shapes [Changed Block]: Added logic for DataStoreReference
         for (const el of dataStoreReferences) {
             if (el.x !== undefined && el.y !== undefined && el.width !== undefined && el.height !== undefined) {
                  // Adjusting for Miro's center-based positioning:
@@ -574,15 +560,15 @@ const App = () => {
         }
 
 
-        // 4. Create Text Annotations and connect them
-        // [Changed Block]: Updated iconMap and logic for Data Objects/Stores
+        /// Create Text Annotations and connect them
+        // Updated iconMap and logic for Data Objects/Stores
         for (const ta of textAnnotations) {
           const iconMap = {
             "IT-System": "🖥️",
             "ProcessParticipant": "👤",
             "Database": "🗄️",
-            "Data Object": "📄", // [Changed Line]: Icon for Data Object
-            "Data Store": "🗄️"  // [Changed Line]: Icon for Data Store (reusing database icon)
+            "Data Object": "📄", // Icon for Data Object
+            "Data Store": "🗄️"  // Icon for Data Store (reusing database icon)
           };
 
           const icon = iconMap[ta.type] || '';
@@ -638,7 +624,7 @@ const App = () => {
           }
         }
 
-        // 5. Create Sequence Flows (solid lines)
+        /// Create Sequence Flows (solid lines)
         for (const el of elements) {
           if (el.type === 'bpmn:SequenceFlow') {
             const source = el.businessObject.sourceRef?.id;
@@ -742,7 +728,7 @@ const App = () => {
           }
         }
 
-        // Draw associations (light grey)
+        /// Draw associations (light grey)
         for (const assoc of associationLinks) {
           const startId = shapeMap.get(assoc.sourceId);
           const endId = textAnnotationMap.get(assoc.targetId) || shapeMap.get(assoc.targetId);
