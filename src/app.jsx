@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { createRoot } from 'react-dom/client';
 import BpmnModeler from 'bpmn-js/lib/Modeler';
-import congratsImage from './assets/congratulations.png';
+import bpmnImage from './assets/bpmn.png';
 import '../src/assets/style.css';
 
 const App = () => {
@@ -755,7 +755,7 @@ const App = () => {
 
     return ( <div className="grid wrapper">
       <div className="cs1 ce12">
-        <img src={congratsImage} alt="Congrats!" />
+        <img src={bpmnImage} alt="BPMN!" />
       </div>
       <input type="file" accept=".bpmn,.xml" onChange={handleFileChange} className="cs1 ce12" />
       <button className="button button-primary" type="button" onClick={clickHandler}  >
