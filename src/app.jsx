@@ -273,16 +273,17 @@ const App = () => {
           }
         });
 
-        const viewport = await miro.board.viewport.get();
         // Find an empty space that can contain the entire diagram
         const emptySpace = await miro.board.findEmptySpace({
-          x: viewport.x,
-          y: viewport.y,
+          x: 0, // Start search from (0,0) or current viewport center
+          y: 0,
           width: maxX - minX,
           height: maxY - minY
         });
 
         // Calculate global offsets to shift the entire diagram.
+        // This will move the top-left corner of the BPMN diagram's bounding box
+        // to the top-left corner of the found empty space.
         const globalOffsetX = emptySpace.x - minX;
         const globalOffsetY = emptySpace.y - minY;
 
@@ -464,7 +465,7 @@ const App = () => {
                         y: shape.y, // Vertically center with the gateway
                         style: {
                             fontSize: fontSize,
-                            textAlign: 'left', // This aligns text within its bounding box to the left
+                            textAlign: 'left', // This aligns text within its own bounding box to the left
                             color: '#1a1a1a',
                             fillColor: 'transparent'
                         }
