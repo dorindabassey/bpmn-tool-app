@@ -1,0 +1,10 @@
+# customHttp.yml
+customHeaders:
+  - pattern: "**" # Applies to all files
+    headers:
+      - Content-Security-Policy: "default-src 'self'; script-src 'self' https://miro.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://miro.com; connect-src 'self' https://miro.com; frame-ancestors 'self' https://miro.com;"
+      - X-Content-Type-Options: "nosniff"
+      - X-Frame-Options: "SAMEORIGIN"
+      - X-XSS-Protection: "1; mode=block"
+      - Strict-Transport-Security: "max-age=31536000; includeSubDomains; preload"
+      - Referrer-Policy: "no-referrer-when-downgrade"
