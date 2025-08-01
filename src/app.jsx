@@ -750,6 +750,13 @@ const App = () => {
           }
         }
 
+        await miro.board.viewport.zoomTo({
+        x: emptySpace.x,
+        y: emptySpace.y,
+        width: maxX - minX,
+        height: maxY - minY
+        });
+
         alert('✅ BPMN imported with flows, associations, comments, and layout!');
       };
 
