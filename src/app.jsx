@@ -750,12 +750,9 @@ const App = () => {
           }
         }
 
-        await miro.board.viewport.zoomTo({
-        x: emptySpace.x,
-        y: emptySpace.y,
-        width: maxX - minX,
-        height: maxY - minY
-        });
+        const allItems = await miro.board.get({ type: 'shape' });
+        const recentItems = allItems.filter(item => item.createdAt > Date.now() - 30000); // past 30s
+        await miro.board.viewport.zoomTo(recentItems);
 
         alert('✅ BPMN imported with flows, associations, comments, and layout!');
       };
