@@ -123,6 +123,13 @@ const App = () => {
           return;
         }
 
+        const importedItems = [];
+        const trackItem = async (promise) => {
+          const item = await promise;
+          if (item) importedItems.push(item);
+          return item;
+        };
+
         modeler = new BpmnModeler({ container: containerRef.current });
         await modeler.importXML(bpmnXml);
 
@@ -300,7 +307,7 @@ const App = () => {
                 const miroX = el.x + el.width / 2 + globalOffsetX;
                 const miroY = el.y + el.height / 2 + globalOffsetY;
 
-                const shape = await miro.board.createShape({
+                const shape = await trackItem(miro.board.createShape({
                     content: '',
                     shape: 'rectangle',
                     x: miroX,
@@ -312,7 +319,8 @@ const App = () => {
                         borderWidth: 2,
                         borderColor: '#1a1a1a'
                     }
-                });
+                }));
+
                 shapeMap.set(el.id, shape.id);
                 participantMiroData.set(el.id, {
                     miroId: shape.id,
@@ -327,7 +335,7 @@ const App = () => {
 
                 if (labelText) {
                     // Position label to the left, rotated 90 degrees for a pool header
-                    await miro.board.createText({
+                    await trackItem(miro.board.createText({
                         content: labelText,
                         // x: shape.x - (shape.width / 2) - 30, // Left of the shape's bounding box
                         x: shape.x - shape.width / 2 + 10, // Adjusted for left alignment within the lane
@@ -339,7 +347,7 @@ const App = () => {
                             fillColor: 'transparent'
                         },
                         rotation: -90
-                    });
+                    }));
                 }
             }
         }
@@ -353,7 +361,7 @@ const App = () => {
                 const miroX = el.x + el.width / 2 + globalOffsetX;
                 const miroY = el.y + el.height / 2 + globalOffsetY;
 
-                const shape = await miro.board.createShape({
+                const shape = await trackItem(miro.board.createShape({
                     content: '',
                     shape: 'rectangle',
                     x: miroX,
@@ -365,12 +373,12 @@ const App = () => {
                         borderWidth: 1,
                         borderColor: '#1a1a1a'
                     }
-                });
+                }));
                 shapeMap.set(el.id, shape.id);
 
                 if (labelText) {
                     // Position label within the lane, adjusting for Miro's center-based coordinates
-                    await miro.board.createText({
+                    await trackItem(miro.board.createText({
                         content: labelText,
                         x: shape.x - shape.width / 2 + 20, // A bit in from the left edge of the lane
                         y: shape.y - shape.height / 2 + 10, // A bit down from the top edge of the lane
@@ -380,7 +388,7 @@ const App = () => {
                             color: '#1a1a1a',
                             fillColor: 'transparent'
                         }
-                    });
+                    }));
                 }
             }
         }
@@ -414,7 +422,7 @@ const App = () => {
             const miroX = el.x + el.width / 2 + globalOffsetX;
             const miroY = el.y + el.height / 2 + globalOffsetY;
 
-            const shape = await miro.board.createShape({
+            const shape = await trackItem(miro.board.createShape({
               content: contentForShape,
               shape: shapeType,
               x: miroX,
@@ -428,7 +436,7 @@ const App = () => {
                 fontSize: fontSize,
                 textAlign: 'center'
               }
-            });
+            }));
 
             shapeMap.set(el.id, shape.id);
 
@@ -441,7 +449,7 @@ const App = () => {
                 }
 
                 if (symbol) {
-                    await miro.board.createText({
+                    await trackItem(miro.board.createText({
                         content: symbol,
                         x: shape.x,
                         y: shape.y,
@@ -450,7 +458,7 @@ const App = () => {
                             textAlign: 'center',
                             color: '#1a1a1a'
                         }
-                    });
+                    }));
                 }
                 if (hasMeaningfulLabel) {
                     // Calculate the position for the text to be to the right of the gateway.
@@ -459,7 +467,7 @@ const App = () => {
                     // Add a margin (e.g., 20 pixels) to separate the text.
                     const textX = shape.x + (shape.width / 2) - 80; // Adjusted X position
                     
-                    await miro.board.createText({
+                    await trackItem(miro.board.createText({
                         content: labelText,
                         x: textX, // Use the calculated X position
                         y: shape.y, // Vertically center with the gateway
@@ -469,7 +477,7 @@ const App = () => {
                             color: '#1a1a1a',
                             fillColor: 'transparent'
                         }
-                    });
+                    }));
                 }
             }
 
@@ -480,7 +488,7 @@ const App = () => {
                 const commentX = el.x + el.width / 2 + 100 + 150/2 + globalOffsetX; // el.x is top-left, add half width of comment shape
                 const commentY = el.y + el.height / 2 + globalOffsetY;
 
-                commentShape = await miro.board.createShape({
+                commentShape = await trackItem(miro.board.createShape({
                   shape: 'flow_chart_predefined_process',
                   content: documentationMap.get(el.id),
                   width: 150,
@@ -492,15 +500,15 @@ const App = () => {
                     borderWidth: 1,
                     borderColor: '#cccccc'
                   }
-                });
-                await miro.board.createConnector({
+                }));
+                await trackItem(miro.board.createConnector({
                   start: { item: shape.id, snapTo: 'auto' },
                   end: { item: commentShape.id, snapTo: 'auto' },
                   style: {
                     strokeColor: '#CCCCCC',
                     strokeWidth: 1,
                   }
-                });
+                }));
               } catch (err) {
                 console.warn('Failed to create comment shape for', el.id, err);
               }
@@ -515,7 +523,7 @@ const App = () => {
                 const miroX = el.x + el.width / 2 + globalOffsetX;
                 const miroY = el.y + el.height / 2 + globalOffsetY;
 
-                const shape = await miro.board.createShape({
+                const shape = await trackItem(miro.board.createShape({
                     content: el.businessObject?.name?.trim() || '',
                     shape: 'flow_chart_data', // Data object shape
                     x: miroX,
@@ -529,7 +537,7 @@ const App = () => {
                         fontSize: 12,
                         textAlign: 'center'
                     }
-                });
+                }));
                 shapeMap.set(el.id, shape.id); // Add to shapeMap so associations can find it
             }
         }
@@ -541,7 +549,7 @@ const App = () => {
                 const miroX = el.x + el.width / 2 + globalOffsetX;
                 const miroY = el.y + el.height / 2 + globalOffsetY;
 
-                const shape = await miro.board.createShape({
+                const shape = await trackItem(miro.board.createShape({
                     content: el.businessObject?.name?.trim() || '',
                     shape: 'flow_chart_database', // Use database shape (cylinder)
                     x: miroX,
@@ -555,7 +563,7 @@ const App = () => {
                         fontSize: 12,
                         textAlign: 'center'
                     }
-                });
+                }));
                 shapeMap.set(el.id, shape.id); // Add to shapeMap
             }
         }
@@ -589,7 +597,7 @@ const App = () => {
             const miroY = baseY + annHeight / 2 + globalOffsetY;
 
             if (useShapeForAnnotation) {
-                annotationMiroItem = await miro.board.createShape({
+                annotationMiroItem = await trackItem(miro.board.createShape({
                   shape: 'round_rectangle', // Using round_rectangle for a background box
                   content: icon ? `${icon} ${ta.text}` : ta.text,
                   width: annWidth,
@@ -603,9 +611,9 @@ const App = () => {
                     fontSize: 14,
                     textAlign: 'center'
                   }
-                });
+                }));
             } else {
-                annotationMiroItem = await miro.board.createText({
+                annotationMiroItem = await trackItem(miro.board.createText({
                   content: icon ? `${icon} ${ta.text}` : ta.text,
                   x: miroX, // For text, X/Y is still top-left, but adjust relative to overall diagram shift.
                   y: miroY,
@@ -615,7 +623,7 @@ const App = () => {
                     color: '#000000',
                     fillColor: 'transparent'
                   }
-                });
+                }));
             }
             if (annotationMiroItem && annotationMiroItem.id) {
               textAnnotationMap.set(ta.id, annotationMiroItem.id);
@@ -724,7 +732,7 @@ const App = () => {
                 ];
               }
       
-              await miro.board.createConnector(connectorConfig);
+              await trackItem(miro.board.createConnector(connectorConfig));
             }
           }
         }
@@ -744,15 +752,18 @@ const App = () => {
               }
             };
 
-            await miro.board.createConnector(connectorConfig);
+            await trackItem(miro.board.createConnector(connectorConfig));
           } else {
             console.warn(`Could not create association. Missing startId (${startId ? assoc.sourceId : 'not found'}) or endId (${endId ? assoc.targetId : 'not found'}).`);
           }
         }
 
-        const allItems = await miro.board.get({ type: 'shape' });
-        const recentItems = allItems.filter(item => item.createdAt > Date.now() - 30000); // past 30s
-        await miro.board.viewport.zoomTo(recentItems);
+        const validItems = importedItems.filter(item => item && item.id && typeof item.x === 'number' && typeof item.y === 'number');
+        if (validItems.length > 0) {
+          await miro.board.viewport.zoomTo(validItems);
+        } else {
+          console.warn('⚠️ No valid items to zoom to.');
+        }
 
         alert('✅ BPMN imported with flows, associations, comments, and layout!');
       };
